@@ -123,10 +123,12 @@
 #define YSF_PORT                        42000                               // UDP port
 #define YSF_KEEPALIVE_PERIOD            3                                   // in seconds
 #define YSF_KEEPALIVE_TIMEOUT           (YSF_KEEPALIVE_PERIOD*10)           // in seconds
+#define YSF_BACK_TO_HOME_TIME           (YSF_KEEPALIVE_PERIOD*200)          // in seconds
 #define YSF_DEFAULT_NODE_TX_FREQ        437000000                           // in Hz
 #define YSF_DEFAULT_NODE_RX_FREQ        437000000                           // in Hz
 #define YSF_AUTOLINK_ENABLE             0                                   // 1 = enable, 0 = disable auto-link
 #define YSF_AUTOLINK_MODULE             'B'                                 // module for client to auto-link to
+#define YSF_PREFIX_ENABLE               0                                   // 1 = enable, 0 = disable DGID prefix
 
 // G3 Terminal
 #define G3_PRESENCE_PORT                12346                               // UDP port
@@ -137,9 +139,11 @@
 
 // IMRS
 #define IMRS_PORT                       21110                               // UDP port
-#define IMRS_KEEPALIVE_PERIOD           30                                  // in seconds
-#define IMRS_KEEPALIVE_TIMEOUT          (IMRS_KEEPALIVE_PERIOD*5)           // in seconds
+#define IMRS_KEEPALIVE_PERIOD           3                                   // in seconds
+#define IMRS_KEEPALIVE_TIMEOUT          (IMRS_KEEPALIVE_PERIOD*35)          // in seconds
+#define IMRS_BACK_TO_HOME_TIME          (IMRS_KEEPALIVE_PERIOD*200)         // in seconds
 #define IMRS_DEFAULT_MODULE             'B'                                 // default module to link in
+#define IMRS_PREFIX_ENABLE               0                                  // 1 = enable, 0 = disable DGID prefix
 
 // Transcoder server --------------------------------------------
 
@@ -182,7 +186,9 @@
 #define INTERLINKLIST_PATH              "/xlxd/xlxd.interlink"
 #define TERMINALOPTIONS_PATH            "/xlxd/xlxd.terminal"
 #define DEBUGDUMP_PATH                  "/var/log/xlxd.debug"
-
+#define DR2_HOME_PATH                   "/xlxd/xlxd.dr2"
+#define MOD_DGID_PATH                   "/xlxd/xlxd.dgid"
+#define MOD_DGID_DB_PATH                "/var/www/html/xdashboard/xlxd.dgid"
 // system constants ---------------------------------------------
 
 #define NB_MODULES_MAX                  26

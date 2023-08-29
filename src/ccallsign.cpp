@@ -126,7 +126,8 @@ bool CCallsign::IsValid(void) const
     
     // module
     // is an letter or space
-    valid &= IsLetter(m_Module) || IsSpace(m_Module);
+    // from 'A' to 'A' + NB_OF_MODULES 
+    valid &= (((m_Module > 64) && (m_Module < (65 + NB_OF_MODULES))) || IsSpace(m_Module));
     
     // dmrid is not tested, as it can be NULL
     // if station does is not dmr registered

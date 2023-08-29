@@ -95,6 +95,7 @@ protected:
     
     // DV packet decoding helpers
     bool IsValidConnectPacket(const CBuffer &, CCallsign *);
+    bool IsValidOptionsPacket(const CBuffer &, CCallsign *);
     //bool IsValidDisconnectPacket(const CBuffer &, CCallsign *);
     bool IsValidDvPacket(const CBuffer &, CYSFFICH *);
     bool IsValidDvHeaderPacket(const CIp &, const CYSFFICH &, const CBuffer &, CDvHeaderPacket **, CDvFramePacket **);
@@ -128,6 +129,12 @@ protected:
     bool DebugDumpDvPacket(const CBuffer &);
     bool DebugDumpLastDvPacket(const CBuffer &);
     
+    // DG-ID Management
+    char DgidToModule(uint8 uiDgid) const;
+    uint8 ModuleToDgid(char cModule) const;
+    void loadDGIDFromFile(void) ;
+    char* TrimWhiteSpaces(char* ) const;
+    
 protected:
     // for keep alive
     CTimePoint          m_LastKeepaliveTime;
@@ -138,6 +145,9 @@ protected:
     // for wires-x
     CWiresxCmdHandler   m_WiresxCmdHandler;
     unsigned char m_seqNo;
+    uint8 m_MOD_DGID[100];
+    uint8 m_DGID_MOD[NB_OF_MODULES];
+    
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////

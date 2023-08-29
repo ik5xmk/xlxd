@@ -29,6 +29,10 @@
 #include "cdvheaderpacket.h"
 #include "cdvframepacket.h"
 #include "cdvlastframepacket.h"
+#include <iostream>
+#include <list>
+#include <fstream>
+#include <vector>
 //#include "ysfdefines.h"
 //#include "cysffich.h"
 //#include "cwiresxinfo.h"
@@ -104,13 +108,23 @@ protected:
     // DG-ID helper
     char DgidToModule(uint8 uiDgid) const;
     uint8 ModuleToDgid(char cModule) const;
-        
+    bool read_dgid(uint8* d, uint8 n) const;
+    void set_dgid(uint8* d, uint8 n) const; 
+    void reset_dgid(uint8* d, uint8 n) const;
+    char* TrimWhiteSpaces(char* ) const;    
+    uint8 GetHome(char*)  const;
+    void loadDGIDFromFile(void) ;
+    
 protected:
     // for keep alive
     CTimePoint          m_LastKeepaliveTime;
     
     // for queue header caches
     std::array<CImrsStreamCacheItem, NB_OF_MODULES>    m_StreamsCache;
+
+    uint8 m_MOD_DGID[100];
+    uint8 m_DGID_MOD[NB_OF_MODULES];
+    
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////

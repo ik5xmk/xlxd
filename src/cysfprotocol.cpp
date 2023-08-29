@@ -51,6 +51,8 @@ bool CYsfProtocol::Init(void)
     // base class
     ok = CProtocol::Init();
     
+    loadDGIDFromFile();
+    
     // update the reflector callsign
     m_ReflectorCallsign.PatchCallsign(0, (const uint8 *)"YSF", 3);
     
@@ -172,7 +174,7 @@ void CYsfProtocol::Task(void)
                 if ( client == NULL )
                 {
                     std::cout << "YSF connect packet from " << Callsign << " at " << Ip << std::endl;
-                    
+                                     
                     // create the client
                     CYsfClient *newclient = new CYsfClient(Callsign, Ip);
                     
@@ -192,6 +194,22 @@ void CYsfProtocol::Task(void)
                 g_Reflector.ReleaseClients();
             }
         }
+         else if ( IsValidOptionsPacket(Buffer, &Callsign) )
+         {
+          CClients *clients = g_Reflector.GetClients();
+          CClient *client = clients->FindClient(Callsign, Ip, PROTOCOL_YSF);
+         // std::cout << "YFSO in Task " << client << " Ip: " << Ip << " Callsign: " << Callsign << std::endl;
+          if ( client != NULL )
+                {
+               // std::cout << "GW Presente" << std::endl;
+                if ((client->GetReflectorModule() != Callsign.GetModule()) && (client->GetModuleHome() == ' ')){
+                  std::cout << "Module changed from " << client->GetReflectorModule() << " to " << Callsign.GetModule() << " via Options" << std::endl;
+                  client->SetReflectorModule(Callsign.GetModule());
+                  client->SetModuleHome(Callsign.GetModule());
+                  } 
+                }
+                g_Reflector.ReleaseClients();
+         }
         else if ( IsValidwirexPacket(Buffer, &Fich, &Callsign, &iWiresxCmd, &iWiresxArg) )
         {
             //std::cout << "YSF Wires-x frame"  << std::endl;
@@ -253,7 +271,7 @@ bool CYsfProtocol::OnDvHeaderPacketIn(CDvHeaderPacket *Header, const CIp &Ip)
         {
             // get client callsign
             via = client->GetCallsign();
-
+            client->ResetTimeToHome();
             if ( Header->GetRpt2Module() == ' ' ) {
                 // module not filled, get module it's linked to
                 Header->SetRpt2Module(client->GetReflectorModule());
@@ -370,6 +388,10 @@ void CYsfProtocol::HandleQueue(void)
                     m_Socket.Send(buffer, client->GetIp());
                     
                 }
+                
+                if (client->IsAMaster() && (client->GetReflectorModule() != client->GetModuleHome()) && (client->GetModuleHome() != ' ')) {
+                  client->ResetTimeToHome();
+                }
             }
             g_Reflector.ReleaseClients();
         }
@@ -408,6 +430,20 @@ void CYsfProtocol::HandleKeepalives(void)
             std::cout << "YSF client " << client->GetCallsign() << " keepalive timeout" << std::endl;
             clients->RemoveClient(client);
         }
+       
+       if ((client->GetReflectorModule() != client->GetModuleHome()) && (client->GetModuleHome() != ' ')) {
+         client->IncTimeToHome(YSF_KEEPALIVE_PERIOD);
+         // std::cout << client->GetTimeToHome() << std::endl;
+         if (client->GetTimeToHome() > YSF_BACK_TO_HOME_TIME) {
+         client->SetReflectorModule(client->GetModuleHome());
+         client->ResetTimeToHome();
+         std::cout << client->GetCallsign() << " Back to Home at module " << client->GetModuleHome() << std::endl;
+         }
+       }
+       else{
+       client->ResetTimeToHome();
+       
+       }
         
     }
     g_Reflector.ReleaseClients();
@@ -429,6 +465,57 @@ bool CYsfProtocol::IsValidConnectPacket(const CBuffer &Buffer, CCallsign *callsi
     }
     return valid;
 }
+
+bool CYsfProtocol::IsValidOptionsPacket(const CBuffer &Buffer, CCallsign *callsign)
+{
+    uint8 tag[] = { 'Y','S','F','O' };
+    char id_s[3];
+    int id;
+    int i,j;
+    
+    bool valid = false;
+    if ( (Buffer.size() == 50) && (Buffer.Compare(tag, sizeof(tag)) == 0) )
+    {
+        
+       // std::cout << "YSFO " << Buffer << std::endl;
+        callsign->SetCallsign(Buffer.data()+4, 8);
+
+        id_s[0] = 0;
+        id_s[1] = 0;
+        id_s[2] = 0;
+        j = 14;
+        for (i = 14; i < 17; i++)  {
+          if (Buffer.at(i) == ',') {
+           j = i+1;
+           break;
+           }
+         }
+        for (i = j; i < 50; i++)  {
+         // std::cout << i << " --> " << Buffer.at(i) << std::endl;
+          if (isdigit(Buffer.at(i))) {
+            id_s[i-j] = Buffer.at(i);
+            }
+          else if ((Buffer.at(i) == ';') || (Buffer.at(i) == ' ') )
+            break;
+        }
+    
+       // std::cout << "trovata ; a " << i << " --> " << id_s << std::endl;
+        
+        valid = 1;
+        try {
+          id = std::stoi(id_s);
+          }
+        catch (...) {
+          valid = 0; 
+          }
+        
+        callsign->SetModule(DgidToModule((uint8)id));
+         
+    }
+    return valid;
+}
+
+
 
 bool CYsfProtocol::IsValidDvPacket(const CBuffer &Buffer, CYSFFICH *Fich)
 {
@@ -477,18 +564,11 @@ bool CYsfProtocol::IsValidDvHeaderPacket(const CIp &Ip, const CYSFFICH &Fich, co
             rpt1.SetModule(YSF_MODULE_ID);
             CCallsign rpt2 = m_ReflectorCallsign;
 
-            if ( (Fich.getSQ() >= 10) && (Fich.getSQ() < 10+NB_OF_MODULES) )
-            {
-                // set module based on DG-ID value
-                rpt2.SetModule( 'A' + (char)(Fich.getSQ() - 10) );
-            }
-            else
-            {
-                // as YSF protocol does not provide a module-tranlatable
-                // destid, set module to none and rely on OnDvHeaderPacketIn()
-                // to later fill it with proper value
-                rpt2.SetModule(' ');
-            }
+           // std::cout << "DG-ID: " << (int)Fich.getSQ() << std::endl;
+
+            rpt2.SetModule(DgidToModule((uint8)Fich.getSQ())); 
+    
+           //  std::cout << "Module: " << rpt2.GetModule() << std::endl;
             
             // and packet
             *header = new CDvHeaderPacket(csMY, CCallsign("CQCQCQ"), rpt1, rpt2, uiStreamId, Fich.getFN());
@@ -640,6 +720,8 @@ bool CYsfProtocol::EncodeDvHeaderPacket(const CDvHeaderPacket &Header, CBuffer *
     uint8 tag[]  = { 'Y','S','F','D' };
     uint8 dest[] = { 'A','L','L',' ',' ',' ',' ',' ',' ',' ' };
     char  sz[YSF_CALLSIGN_LENGTH];
+    char  sz_id[YSF_CALLSIGN_LENGTH];
+    uint8 dgid;
     uint8 fichd[YSF_FICH_LENGTH_BYTES];
 
     // tag
@@ -679,7 +761,23 @@ bool CYsfProtocol::EncodeDvHeaderPacket(const CDvHeaderPacket &Header, CBuffer *
     ::memset(csd1, '*', YSF_CALLSIGN_LENGTH);
     ::memset(csd1 + YSF_CALLSIGN_LENGTH, ' ', YSF_CALLSIGN_LENGTH);
     Header.GetMyCallsign().GetCallsignString(sz);
+    
+    if (YSF_PREFIX_ENABLE) {    
+    ::memset(sz_id, ' ', sizeof(sz_id));
+    dgid = ModuleToDgid(Header.GetModuleId());    
+    sz_id[0] = dgid / 10 + '0';
+    sz_id[1] = dgid % 10 + '0';
+    sz_id[2] = '/';
+    for (int i = 0; i < YSF_CALLSIGN_LENGTH-3; i++)
+      sz_id[i+3] = sz[i];
+
+    ::memcpy(csd1 + YSF_CALLSIGN_LENGTH, sz_id, ::strlen(sz_id));
+    }
+    else {
     ::memcpy(csd1 + YSF_CALLSIGN_LENGTH, sz, ::strlen(sz));
+    }
+    
+    
     ::memset(csd2, ' ', YSF_CALLSIGN_LENGTH + YSF_CALLSIGN_LENGTH);
     CYSFPayload payload;
     uint8 temp[120];
@@ -696,6 +794,8 @@ bool CYsfProtocol::EncodeDvPacket(const CDvHeaderPacket &Header, const CDvFrameP
     uint8 dest[] = { 'A','L','L',' ',' ',' ',' ',' ',' ',' ' };
     uint8 gps[]  = { 0x52,0x22,0x61,0x5F,0x27,0x03,0x5E,0x20,0x20,0x20 };
     char  sz[YSF_CALLSIGN_LENGTH];
+    char  sz_id[YSF_CALLSIGN_LENGTH];
+    uint8 dgid;
     uint8 fichd[YSF_FICH_LENGTH_BYTES];
     
      // tag
@@ -750,7 +850,22 @@ bool CYsfProtocol::EncodeDvPacket(const CDvHeaderPacket &Header, const CDvFrameP
             ::memset(sz, ' ', sizeof(sz));
             Header.GetMyCallsign().GetCallsignString(sz);
             sz[::strlen(sz)] = ' ';
+            
+            if (YSF_PREFIX_ENABLE) {
+            ::memset(sz_id, ' ', sizeof(sz_id));
+            dgid = ModuleToDgid(Header.GetModuleId());
+            
+            sz_id[0] = dgid / 10 + '0';
+            sz_id[1] = dgid % 10 + '0';
+            sz_id[2] = '/';
+            for (int i = 0; i < YSF_CALLSIGN_LENGTH-3; i++)
+              sz_id[i+3] = sz[i];
+            //std::cout << sz_id << std::endl;  
+            payload.writeVDMode2Data(temp, (const unsigned char*)sz_id);
+            }
+            else {
             payload.writeVDMode2Data(temp, (const unsigned char*)sz);
+            }
             break;
         case 2:
             // Down
@@ -804,7 +919,7 @@ bool CYsfProtocol::EncodeDvLastPacket(const CDvHeaderPacket &Header, CBuffer *Bu
     // dest
     Buffer->Append(dest, 10);
     // net frame counter
-    Buffer->Append((uint8)0x00);
+    Buffer->Append((uint8)0x01);
     // FS
     Buffer->Append((uint8 *)YSF_SYNC_BYTES, YSF_SYNC_LENGTH_BYTES);
     // FICH
@@ -941,10 +1056,10 @@ bool CYsfProtocol::IsValidwirexPacket(const CBuffer &Buffer, CYSFFICH *Fich, CCa
                     }
                     else
                     {
-                        std::cout << "Wires-X unknown command" << std::endl;
+                        std::cout << "Wires-X unknown command: " << Buffer << std::endl;
                         *Cmd = WIRESX_CMD_UNKNOWN;
                         *Arg = 0;
-                        valid = false;
+                        valid = false;              
                     }
                 }
             }
@@ -1147,4 +1262,163 @@ bool CYsfProtocol::DebugDumpLastDvPacket(const CBuffer &Buffer)
     std::cout << "TC-" <<(ok ? "ok " : "xx ") << "src: " << payload.getSource() << "dest: " << payload.getDest() << std::endl;
 
     return ok;
+}
+
+char* CYsfProtocol::TrimWhiteSpaces(char* str) const
+{
+    char* end;
+
+    // Trim leading space & tabs
+    while ((*str == ' ') || (*str == '\t')) str++;
+
+    // All spaces?
+    if (*str == 0)
+        return str;
+
+    // Trim trailing space, tab or lf
+    end = str + ::strlen(str) - 1;
+    while ((end > str) && ((*end == ' ') || (*end == '\t') || (*end == '\r'))) end--;
+
+    // Write new null terminator
+    *(end + 1) = 0;
+
+    return str;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////
+///// DG-ID helper
+
+void CYsfProtocol::loadDGIDFromFile(void)
+{
+
+ char sz[256];
+ char mod;
+ char cid[5];
+ int id;
+ int i, j;
+ bool error, fout_ok;
+
+ 
+// load file with MOD <--> DGID
+std::cout << "Load MOD <-> DGID from file" << std::endl;
+for (int i = 0; i < NB_OF_MODULES; i++)
+  m_DGID_MOD[i] = (uint8)0;
+  
+for (int i = 0; i < 100; i++)
+  m_MOD_DGID[i] = (uint8)' ';
+
+  std::ifstream file(MOD_DGID_PATH);
+  std::ofstream file_out(MOD_DGID_DB_PATH);
+  error = false;
+  fout_ok = false;
+  if (file.is_open())
+    {
+      while (file.getline(sz, sizeof(sz)).good())
+        {
+        // std::cout << sz << std::endl;
+         char* szt = TrimWhiteSpaces(sz);
+         if (file_out.is_open()) {
+         file_out << szt << std::endl;
+         fout_ok = true;
+         }
+         if ((::strlen(szt) > 0) && (szt[0] != '#'))
+            {
+           mod = szt[0];
+           if ((mod >= 'A') and (mod <= ('A'+ NB_OF_MODULES)))  
+           { 
+           // valid module
+           for (i = 1; i < ::strlen(szt); i++)
+             {
+             if (szt[i] == ';')
+              break; 
+              }
+            i++;  
+            j=0;
+            for ( ; i < ::strlen(szt); i++)
+             {
+             if (szt[i] != ';') {
+              if (isdigit(szt[i]))
+                cid[j++] = szt[i];
+              }
+              else {
+              cid[j] = '\0';
+              break;   
+              }
+           }
+           
+            try {
+                   id = atoi(cid);
+                  }
+            catch (...) {
+                   id = 0;
+                  } 
+          
+           if ((id > 0) and (id < 100)) {
+             m_DGID_MOD[mod-'A'] = id;
+             m_MOD_DGID[id] = mod;
+      //       std::cout << "MOD <--> DGID added: " << mod << " <--> " << id << std::endl;
+           }
+        }
+    }
+    
+    
+     }
+     file.close();
+     if (fout_ok) {
+      // file_out << "# generated: " << std::chrono::system_clock::now() << std::endl;
+       file_out.close();
+       }
+    }
+    else {
+    error = true;
+    
+    }
+    
+    // load default
+    if (error) {
+      std::cout << "no file "<< MOD_DGID_PATH << " found ... load default" << std::endl;
+      for (int i = 0; i < NB_OF_MODULES; i++)
+        m_DGID_MOD[i] = 10 + i;
+  
+    for (int i = 0; i < NB_OF_MODULES; i++)
+       m_MOD_DGID[i+10] = 'A' + i;
+    
+    if (file_out.is_open()) {
+       for (int i = 0; i < NB_OF_MODULES; i++)
+         file_out << (char)('A' + i) << ";" << (int)m_DGID_MOD[i] << ";" << std::endl;
+       file_out.close();
+    }
+    
+    }
+    
+    std::cout << "YSF MOD -> DGID Matrix:" << std::endl;
+    
+    for (int i = 0; i < NB_OF_MODULES; i++)
+      if (m_DGID_MOD[i] > 0)
+        std::cout << (char)('A' + i) << " <--> " << (int)m_DGID_MOD[i] << std::endl;
+  
+    std::cout << "YSF DGID -> YSF MOD Matrix:" << std::endl;
+  
+    for (int i = 0; i < 100; i++)
+      if (m_MOD_DGID[i] >= 'A')
+        std::cout << (int)i << " <--> " << (char)m_MOD_DGID[i] << std::endl;
+
+}
+
+
+char CYsfProtocol::DgidToModule(uint8 uiDgid) const
+{
+    char cModule = ' ';
+    cModule = m_MOD_DGID[uiDgid];           
+    return cModule;
+    
+}
+
+
+uint8 CYsfProtocol::ModuleToDgid(char cModule) const
+{
+    uint8 uiDgid = 0x00;
+    uiDgid = m_DGID_MOD[cModule - 'A'];  
+    return uiDgid;
 }

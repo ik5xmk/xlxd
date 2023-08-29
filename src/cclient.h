@@ -55,12 +55,18 @@ public:
     const CIp &GetIp(void) const                        { return m_Ip; }
     bool HasModule(void) const                          { return m_Callsign.HasModule(); }
     char GetModule(void) const                          { return m_Callsign.GetModule(); }
+    char GetModuleHome(void) const                      { return m_ModuleHome; }
     bool HasReflectorModule(void) const                 { return m_ReflectorModule != ' '; }
     char GetReflectorModule(void) const                 { return m_ReflectorModule; }
+    int  GetTimeToHome(void)                            { return m_TimeToHome; }
    
     // set
     void SetModule(char c)                              { m_Callsign.SetModule(c); }
     void SetReflectorModule(char c)                     { m_ReflectorModule = c; }
+    void SetModuleHome(char c)                          { m_ModuleHome = c; }
+    void ResetTimeToHome(void)                          { m_TimeToHome = 0; }
+    void IncTimeToHome(int t)                           { m_TimeToHome += t; }
+    
     
     // identity
     virtual int GetProtocol(void) const                 { return PROTOCOL_NONE; }
@@ -94,9 +100,12 @@ protected:
 
     // status
     char        m_ModuleMastered;
+    char        m_ModuleHome;
     CTimePoint  m_LastKeepaliveTime;
     std::time_t m_ConnectTime;
     std::time_t m_LastHeardTime;
+    int         m_TimeToHome;
+    
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////

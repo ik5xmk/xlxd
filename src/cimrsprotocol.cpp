@@ -41,10 +41,12 @@ bool CImrsProtocol::Init(void)
     
     // base class
     ok = CProtocol::Init();
+ 
+    loadDGIDFromFile();
     
     // update the reflector callsign
     m_ReflectorCallsign.PatchCallsign(0, (const uint8 *)"IMR", 3);
-    
+
     // create our socket
     ok &= m_Socket.Open(IMRS_PORT);
     if ( !ok )
@@ -77,6 +79,10 @@ void CImrsProtocol::Task(void)
     CDvHeaderPacket     *Header;
     CDvFramePacket      *Frames[5];
     uint32              Version;
+
+    uint8 dgid[16];
+    char id_set;
+    char cs_str[11];
 
     // handle incoming packets
     if ( m_Socket.Receive(&Buffer, &Ip, 20) != -1 )
@@ -144,16 +150,39 @@ void CImrsProtocol::Task(void)
                 // client already connected ?
                 if ( client == NULL )
                 {
-                    std::cout << "IMRS connect packet from " << Callsign << " at " << Ip << " fw version "
-                              << (int)HIBYTE(HIWORD(Version)) << "."
-                              << (int)LOBYTE(HIWORD(Version)) << "."
-                              << (int)HIBYTE(LOWORD(Version)) << "."
-                              << (int)LOBYTE(LOWORD(Version)) << std::endl;
-
+                     std::cout << "IMRS connect packet from " << Callsign << " at " << Ip << " fw version "
+                               << (int)HIBYTE(HIWORD(Version)) << "."
+                               << (int)LOBYTE(HIWORD(Version)) << "."
+                               << (int)HIBYTE(LOWORD(Version)) << "."
+                               << (int)LOBYTE(LOWORD(Version)) << std::endl;
+                               
                     // create the client
                     CImrsClient *newclient = new CImrsClient(Callsign, Ip);
                     // connect to default module
                     newclient->SetReflectorModule(IMRS_DEFAULT_MODULE);
+                    Callsign.GetCallsignString(cs_str); 
+                    id_set = DgidToModule(GetHome(cs_str));
+                    if (id_set != ' ') {
+                      
+                      newclient->SetReflectorModule(id_set);
+                      newclient->SetModuleHome(id_set);
+                      std::cout << "set DG-ID via Home file " << id_set << std::endl;
+                    }
+                   else { 
+                     for (int i = 0; i < 16; i++)
+                       dgid[i]  = Buffer.at(41 + i);
+       
+                     for (uint8 i = 10; i < 99; i++) {
+                       if (read_dgid(dgid, i)) {
+                         id_set = DgidToModule(i);
+                         if (id_set != ' ') {
+                         newclient->SetReflectorModule(id_set);
+                         std::cout << "set DG-ID via Connect Packet " << id_set << std::endl;
+                         break;
+                         }
+                        }
+                     }
+                     }
                     
                     // and append
                     clients->AddClient(newclient);
@@ -169,6 +198,7 @@ void CImrsProtocol::Task(void)
         else
         {
             // invalid packet
+            //std::cout << "IMRS packet (" << Buffer.size() << ") from " << Callsign << " at " << Ip << std::endl;
             std::cout << "IMRS packet (" << Buffer.size() << ") from " << Callsign << " at " << Ip << std::endl;
             //Buffer.DebugDump(g_Reflector.m_DebugFile);
         }
@@ -211,7 +241,7 @@ bool CImrsProtocol::OnDvHeaderPacketIn(CDvHeaderPacket *Header, const CIp &Ip)
         {
             // get client callsign
             via = client->GetCallsign();
-            
+            client->ResetTimeToHome();
             // handle changing module client is linked to
             // via dgid of packet
             if ( Header->GetRpt2Module() != client->GetReflectorModule() )
@@ -331,6 +361,11 @@ void CImrsProtocol::HandleQueue(void)
                     m_Socket.Send(buffer, client->GetIp(), IMRS_PORT);
                     //std::cout << "sending " << buffer.size() << " bytes to " << client->GetIp() << std::endl;
                 }
+                
+                if (client->IsAMaster() && (client->GetReflectorModule() != client->GetModuleHome()) && (client->GetModuleHome() != ' ')) {
+                  client->ResetTimeToHome();
+                }
+                
                 // as DR-2X doesn't seems to respond to keepalives when receiving a stream
                 // tickle the keepalive timer here
                 client->Alive();
@@ -373,6 +408,20 @@ void CImrsProtocol::HandleKeepalives(void)
             clients->RemoveClient(client);
         }
         
+       if ((client->GetReflectorModule() != client->GetModuleHome()) && (client->GetModuleHome() != ' ')) {
+         client->IncTimeToHome(IMRS_KEEPALIVE_PERIOD);
+         // std::cout << client->GetTimeToHome() << std::endl;
+         if (client->GetTimeToHome() > IMRS_BACK_TO_HOME_TIME) {
+         client->SetReflectorModule(client->GetModuleHome());
+         client->ResetTimeToHome();
+         std::cout << client->GetCallsign() << " Back to Home at module " << client->GetModuleHome() << std::endl;
+         }
+       }
+       else{
+       client->ResetTimeToHome();
+       
+       } 
+        
     }
     g_Reflector.ReleaseClients();
 }
@@ -390,6 +439,7 @@ bool CImrsProtocol::IsValidPingPacket(const CBuffer &Buffer)
 bool CImrsProtocol::IsValidConnectPacket(const CBuffer &Buffer, CCallsign *Callsign, uint32 *FirmwareVersion)
 {
     uint8 tag[] = { 0x00,0x2C,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+    
 
     bool valid = false;
     if ( (Buffer.size() == 60) && (Buffer.Compare(tag, sizeof(tag)) == 0) )
@@ -651,8 +701,9 @@ void CImrsProtocol::EncodePongPacket(CBuffer *Buffer) const
 {
     uint8 tag1[] = { 0x00,0x2C,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x04,0x00,0x00 };
     uint8 radioid[] = { 'G','0','g','B','J' };
+    uint8 dgid[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
     char  sz[YSF_CALLSIGN_LENGTH];
-
+    uint8 dg; 
     // tag
     Buffer->Set(tag1, sizeof(tag1));
     // mac address
@@ -665,29 +716,25 @@ void CImrsProtocol::EncodePongPacket(CBuffer *Buffer) const
     // radioid
     Buffer->Append(radioid, sizeof(radioid));
     // list of authorised dg-id
-    // enable dg-id 2 & 10 -> 10+NBmodules
-    uint32 dgids32 = 0x00000004;
-    uint32 mask32  = 0x00000400;
-    // modules 10->31
-    for ( int i = 0; i < (int)(MIN(NB_OF_MODULES,22)); i++ )
+    // enable dg-id 2 & NBmodules
+    
+    set_dgid(dgid, 2);
+    
+    for ( int i = 0; i < (int)NB_OF_MODULES; i++ )
     {
-        dgids32 |= mask32;
-        mask32 = mask32 << 1;
+      dg = ModuleToDgid(char ('A' + i));  
+      
+      if (dg != 0) {
+      set_dgid(dgid, dg);
+      // debug
+      // std::cout << "IMRS DG-ID Enabled: " << char ('A' + i) << " --> " << (int)dg << std::endl;
+      }  
+        
+        
     }
-    Buffer->Append(LOBYTE(LOWORD(dgids32)));
-    Buffer->Append(HIBYTE(LOWORD(dgids32)));
-    Buffer->Append(LOBYTE(HIWORD(dgids32)));
-    Buffer->Append(HIBYTE(HIWORD(dgids32)));
-    // module 32->35
-    uint8 dgids8 = 0x00;
-    uint8 mask8 = 0x01;
-    for ( int i = 22; i < NB_OF_MODULES; i++ )
-    {
-        dgids8 |= mask8;
-        mask8 = mask8 << 1;
-    }
-    Buffer->Append(dgids8);
-    Buffer->Append((uint8)0x00, 12);
+    
+    Buffer->Append(dgid, sizeof(dgid));
+    Buffer->Append((uint8)0x00, 1);
     // and dg-id
     Buffer->Append((uint8)2);
     Buffer->Append((uint8)2);
@@ -753,9 +800,27 @@ bool CImrsProtocol::EncodeDvHeaderPacket(const CDvHeaderPacket &Header, CBuffer 
 
     // source callsign = csMY
     uint8 cs[YSF_CALLSIGN_LENGTH];
+    uint8 cs_id[YSF_CALLSIGN_LENGTH];
+    uint8 dgid;
+    
     ::memset(cs, ' ', sizeof(cs));
     Header.GetMyCallsign().GetCallsign(cs);
+    
+    if (IMRS_PREFIX_ENABLE) { 
+    ::memset(cs_id, ' ', sizeof(cs_id));
+    dgid = ModuleToDgid(Header.GetModuleId());
+            
+    cs_id[0] = dgid / 10 + '0';
+    cs_id[1] = dgid % 10 + '0';
+    cs_id[2] = '/';
+    for (int i = 0; i < YSF_CALLSIGN_LENGTH-3; i++)
+      cs_id[i+3] = cs[i];
+    
+    Buffer->ReplaceAt(31+10, cs_id, YSF_CALLSIGN_LENGTH);
+    }
+    else {
     Buffer->ReplaceAt(31+10, cs, YSF_CALLSIGN_LENGTH);
+    }
 
     // downlink callsign is blank
     
@@ -832,7 +897,7 @@ bool CImrsProtocol::EncodeDvPacket(const CDvHeaderPacket &Header, const CDvFrame
     //std::cout << "F:" << uiSid << "," << DvFrames[0].GetImrsPacketFrameId() << "," << (int)DvFrames[0].GetImrsPacketId() << "," << uiTime << std::endl;
 
     // todo: fill with proper content if needed
-    // dch
+    // dch -> "*****H5!RE"
     Buffer->Append((uint8*)"2A2A2A2A2A4835215245", 20);
                              
     // ambe frames
@@ -910,24 +975,248 @@ uint32 CImrsProtocol::IpToStreamId(const CIp &ip) const
 ////////////////////////////////////////////////////////////////////////////////////////
 ///// DG-ID helper
 
+void CImrsProtocol::loadDGIDFromFile(void)
+{
+
+ char sz[256];
+ char mod;
+ char cid[5];
+ int id;
+ int i, j;
+ bool error, fout_ok;
+
+ 
+// load file with MOD <--> DGID
+std::cout << "Load MOD <-> DGID from file" << std::endl;
+for (int i = 0; i < NB_OF_MODULES; i++)
+  m_DGID_MOD[i] = (uint8)0;
+  
+for (int i = 0; i < 100; i++)
+  m_MOD_DGID[i] = (uint8)' ';
+
+  std::ifstream file(MOD_DGID_PATH);
+//  std::ofstream file_out(MOD_DGID_DB_PATH);
+  error = false;
+  fout_ok = false;
+  if (file.is_open())
+    {
+      while (file.getline(sz, sizeof(sz)).good())
+        {
+        // std::cout << sz << std::endl;
+         char* szt = TrimWhiteSpaces(sz);
+//         if (file_out.is_open()) {
+//         file_out << szt << std::endl;
+//         fout_ok = true;
+//         }
+         if ((::strlen(szt) > 0) && (szt[0] != '#'))
+            {
+           mod = szt[0];
+           if ((mod >= 'A') and (mod <= ('A'+ NB_OF_MODULES)))  
+           { 
+           // valid module
+           for (i = 1; i < ::strlen(szt); i++)
+             {
+             if (szt[i] == ';')
+              break; 
+              }
+            i++;  
+            j=0;
+            for ( ; i < ::strlen(szt); i++)
+             {
+             if (szt[i] != ';') {
+              if (isdigit(szt[i]))
+                cid[j++] = szt[i];
+              }
+              else {
+              cid[j] = '\0';
+              break;   
+              }
+           }
+           
+            try {
+                   id = atoi(cid);
+                  }
+            catch (...) {
+                   id = 0;
+                  } 
+          
+           if ((id > 0) and (id < 100)) {
+             m_DGID_MOD[mod-'A'] = id;
+             m_MOD_DGID[id] = mod;
+           //  std::cout << "MOD <--> DGID added: " << mod << " <--> " << id << std::endl;
+           }
+        }
+    }
+    
+    
+     }
+     file.close();
+//     if (fout_ok) {
+//       file_out.close();
+//       }
+    }
+    else {
+    error = true;
+    
+    }
+    
+    // load default
+    if (error) {
+      std::cout << "no file "<< MOD_DGID_PATH << " found ... load default" << std::endl;
+      for (int i = 0; i < NB_OF_MODULES; i++)
+        m_DGID_MOD[i] = 10 + i;
+  
+    for (int i = 0; i < NB_OF_MODULES; i++)
+       m_MOD_DGID[i+10] = 'A' + i;
+    
+    }
+    
+    std::cout << "IMRS MOD -> DGID Matrix:" << std::endl;
+    
+    for (int i = 0; i < NB_OF_MODULES; i++)
+      if (m_DGID_MOD[i] > 0)
+        std::cout << (char)('A' + i) << " <--> " << (int)m_DGID_MOD[i] << std::endl;
+  
+    std::cout << "IMRS DGID -> MOD Matrix:" << std::endl;
+  
+    for (int i = 0; i < 100; i++)
+      if (m_MOD_DGID[i] >= 'A')
+        std::cout << (int)i << " <--> " << (char)m_MOD_DGID[i] << std::endl;
+
+}
+
+
 char CImrsProtocol::DgidToModule(uint8 uiDgid) const
 {
     char cModule = ' ';
-    
-    if ( (uiDgid >= 10) && (uiDgid < (10+NB_OF_MODULES)) )
-    {
-        cModule = 'A' + (uiDgid-10);
-    }
+    cModule = m_MOD_DGID[uiDgid];           
     return cModule;
-    
+
 }
+
+
 uint8 CImrsProtocol::ModuleToDgid(char cModule) const
 {
     uint8 uiDgid = 0x00;
-    
-    if ( (cModule >= 'A') && (cModule < ('A'+NB_OF_MODULES)) )
-    {
-        uiDgid = 10 + (cModule - 'A');
-    }
+    uiDgid = m_DGID_MOD[cModule - 'A'];  
     return uiDgid;
+}
+
+
+// ### DG-ID MANAGEMENT ###
+
+bool CImrsProtocol::read_dgid(uint8* d, uint8 n) const
+{
+    uint8 nby, nbi;
+    nby = int(n / 8);
+    nbi = n % 8;
+    return d[nby] & (0x1 << nbi);
+} 
+
+
+void CImrsProtocol::set_dgid(uint8* d, uint8 n) const 
+{
+    uint8 nby, nbi;
+    nby = int(n / 8);
+    nbi = n % 8;
+    d[nby] = d[nby] | (0x1 << nbi);
+}
+
+void CImrsProtocol::reset_dgid(uint8* d, uint8 n) const  
+{
+    uint8 nby, nbi;
+    nby = int(n / 8);
+    nbi = n % 8;
+    d[nby] = d[nby] & ~(0x1 << nbi);
+}
+
+
+char* CImrsProtocol::TrimWhiteSpaces(char* str) const
+{
+    char* end;
+
+    // Trim leading space & tabs
+    while ((*str == ' ') || (*str == '\t')) str++;
+
+    // All spaces?
+    if (*str == 0)
+        return str;
+
+    // Trim trailing space, tab or lf
+    end = str + ::strlen(str) - 1;
+    while ((end > str) && ((*end == ' ') || (*end == '\t') || (*end == '\r'))) end--;
+
+    // Write new null terminator
+    *(end + 1) = 0;
+
+    return str;
+}
+
+uint8 CImrsProtocol::GetHome(char *call) const  
+{
+   bool ok = false;
+    char sz[256];
+    char cs[11];
+    char cid[5];
+    int id;
+    int i, j;
+    bool error;
+
+    id = 0;
+    std::ifstream file (DR2_HOME_PATH);
+    error = false;
+    if (file.is_open())
+    {
+        while (file.getline(sz, sizeof(sz)).good())
+        {
+            char* szt = TrimWhiteSpaces(sz);
+            char* call_trim = TrimWhiteSpaces(call);
+            if ((::strlen(szt) > 0) && (szt[0] != '#'))
+            {
+                for (i = 0; i < 10; i++) {
+                    if (isalnum(szt[i])) {
+                        cs[i] = szt[i];
+                    }
+                    if ((szt[i] == ' ') || (szt[i] == '\t')) {
+                        cs[i] = '\0';
+                        break;
+                    }
+               }
+               
+                if (strlen(cs) < 3)
+                    error = true;
+
+                if (strcmp(cs, call_trim) == 0) {
+               
+                j = 0;
+                for (; i < 255; i++) {
+                    if (isdigit(szt[i])) {
+                        cs[j++] = szt[i];
+                    }
+                    if ((j > 0) && !isdigit(szt[i])) {
+                        cs[j] = '\0';
+                        break;
+
+              }
+                }
+                //std::cout << cs << std::endl;
+                //std::cout << szt << std::endl;
+                  try {
+                  id = atoi(cs);
+                  }
+                  catch (...) {
+                      id = 0;
+                      error = true;
+                  }
+              break;     
+            }
+           
+           }
+
+        }
+          file.close();
+         // std::cout << "DR2 Home letto " << std::endl;
+        }
+
+return uint8(id);
 }

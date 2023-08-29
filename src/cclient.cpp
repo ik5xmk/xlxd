@@ -34,9 +34,11 @@ CClient::CClient()
 {
     m_ReflectorModule = ' ';
     m_ModuleMastered = ' ';
+    m_ModuleHome = ' ';
     m_LastKeepaliveTime.Now();
     m_ConnectTime = std::time(NULL);
     m_LastHeardTime = std::time(NULL);
+    m_TimeToHome = 0;
 }
 
 CClient::CClient(const CCallsign &callsign, const CIp &ip, char reflectorModule)
@@ -45,9 +47,11 @@ CClient::CClient(const CCallsign &callsign, const CIp &ip, char reflectorModule)
     m_Callsign = callsign;
     m_Ip = ip;
     m_ModuleMastered = ' ';
+    m_ModuleHome = ' ';
     m_LastKeepaliveTime.Now();
     m_ConnectTime = std::time(NULL);
     m_LastHeardTime = std::time(NULL);
+    m_TimeToHome = 0;
 }
 
 CClient::CClient(const CClient &client)
@@ -56,9 +60,11 @@ CClient::CClient(const CClient &client)
     m_Ip = client.m_Ip;
     m_ReflectorModule = client.m_ReflectorModule;
     m_ModuleMastered = client.m_ModuleMastered;
+    m_ModuleHome = ' ';
     m_LastKeepaliveTime = client.m_LastKeepaliveTime;
     m_ConnectTime = client.m_ConnectTime;
     m_LastHeardTime = client.m_LastHeardTime;
+    m_TimeToHome = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
