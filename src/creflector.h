@@ -88,6 +88,7 @@ public:
     bool IsValidModule(char c) const                { return (GetModuleIndex(c) >= 0); }
     int  GetModuleIndex(char) const;
     char GetModuleLetter(int i) const               { return 'A' + (char)i; }
+    bool IsTranscodedModule(char c)                 { return  m_transcoder[c - 'A']; }
     
     // notifications
     void OnPeersChanged(void);
@@ -95,6 +96,8 @@ public:
     void OnUsersChanged(void);
     void OnStreamOpen(const CCallsign &);
     void OnStreamClose(const CCallsign &);
+	
+	char* TrimWhiteSpaces(char* ) const; 
     
 protected:
     // threads
@@ -144,6 +147,8 @@ protected:
     
     // notifications
     CNotificationQueue  m_Notifications;
+    
+    bool            m_transcoder[NB_OF_MODULES];
     
 public:
 #ifdef DEBUG_DUMPFILE

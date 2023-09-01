@@ -54,7 +54,7 @@
 
 // global ------------------------------------------------------
 
-#define RUN_AS_DAEMON
+// #define RUN_AS_DAEMON
 #define JSON_MONITOR
 
 // debug -------------------------------------------------------
@@ -65,8 +65,8 @@
 
 // reflector ---------------------------------------------------
 
-#define NB_OF_MODULES                   10
-//#define NB_OF_MODULES                   NB_MODULES_MAX
+// #define NB_OF_MODULES                   10
+#define NB_OF_MODULES                   NB_MODULES_MAX
 
 // protocols ---------------------------------------------------
 
@@ -126,9 +126,9 @@
 #define YSF_BACK_TO_HOME_TIME           (YSF_KEEPALIVE_PERIOD*200)          // in seconds
 #define YSF_DEFAULT_NODE_TX_FREQ        437000000                           // in Hz
 #define YSF_DEFAULT_NODE_RX_FREQ        437000000                           // in Hz
-#define YSF_AUTOLINK_ENABLE             0                                   // 1 = enable, 0 = disable auto-link
+#define YSF_AUTOLINK_ENABLE             1                                   // 1 = enable, 0 = disable auto-link
 #define YSF_AUTOLINK_MODULE             'B'                                 // module for client to auto-link to
-#define YSF_PREFIX_ENABLE               0                                   // 1 = enable, 0 = disable DGID prefix
+#define YSF_PREFIX_ENABLE               1                                   // 1 = enable, 0 = disable DGID prefix
 
 // G3 Terminal
 #define G3_PRESENCE_PORT                12346                               // UDP port
@@ -143,7 +143,7 @@
 #define IMRS_KEEPALIVE_TIMEOUT          (IMRS_KEEPALIVE_PERIOD*35)          // in seconds
 #define IMRS_BACK_TO_HOME_TIME          (IMRS_KEEPALIVE_PERIOD*200)         // in seconds
 #define IMRS_DEFAULT_MODULE             'B'                                 // default module to link in
-#define IMRS_PREFIX_ENABLE               0                                  // 1 = enable, 0 = disable DGID prefix
+#define IMRS_PREFIX_ENABLE               1                                  // 1 = enable, 0 = disable DGID prefix
 
 // Transcoder server --------------------------------------------
 
@@ -188,7 +188,8 @@
 #define DEBUGDUMP_PATH                  "/var/log/xlxd.debug"
 #define DR2_HOME_PATH                   "/xlxd/xlxd.dr2"
 #define MOD_DGID_PATH                   "/xlxd/xlxd.dgid"
-#define MOD_DGID_DB_PATH                "/var/www/html/xdashboard/xlxd.dgid"
+#define MOD_DGID_DB_PATH                "/xlxd/xlxddb.dgid"
+#define MODULE_PATH                     "/xlxd/xlxd.module"
 // system constants ---------------------------------------------
 
 #define NB_MODULES_MAX                  26

@@ -24,6 +24,7 @@
 
 #include "main.h"
 #include "cpacketstream.h"
+#include "creflector.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // constructor
@@ -54,7 +55,13 @@ bool CPacketStream::Open(const CDvHeaderPacket &DvHeader, CClient *client)
         m_DvHeader = DvHeader;
         m_OwnerClient = client;
         m_LastPacketTime.Now();
-        m_CodecStream = g_Transcoder.GetStream(this, client->GetCodec());
+        if(g_Reflector.IsTranscodedModule(DvHeader.GetRpt2Module())) {
+          m_CodecStream = g_Transcoder.GetStream(this, client->GetCodec());
+          }
+        else {
+          m_CodecStream = g_Transcoder.GetStream(this, CODEC_NONE);
+          std::cout << "Module " << DvHeader.GetRpt2Module() << " not enabled to transcoding" << std::endl;
+          }  
         ok = true;
     }
     return ok;

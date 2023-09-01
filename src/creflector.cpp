@@ -37,33 +37,82 @@
 
 CReflector::CReflector()
 {
-    m_bStopThreads = false;
+    char sz[256];
+	char mod;
+	m_bStopThreads = false;
     m_XmlReportThread = NULL;
     m_JsonReportThread = NULL;
     for ( int i = 0; i < NB_OF_MODULES; i++ )
     {
         m_RouterThreads[i] = NULL;
+		m_transcoder[i] = false;
     }
     ::memset(m_Mac, 0, sizeof(m_Mac));
 #ifdef DEBUG_DUMPFILE
     m_DebugFile.open("/Users/jean-luc/Desktop/xlxdebug.txt");
 #endif
+    std::ifstream file(MODULE_PATH);
+	if (file.is_open()) {
+	  while (file.getline(sz, sizeof(sz)).good()) {
+	    char* szt = TrimWhiteSpaces(sz);
+	    if ((::strlen(szt) > 0) && (szt[0] != '#')) {
+           mod = szt[0];
+           if ((mod >= 'A') and (mod <= ('A'+ NB_OF_MODULES))) 
+             m_transcoder[mod - 'A']  = true; 
+           }
+		}
+	}
+	else
+	  for ( int i = 0; i < NB_OF_MODULES; i++ )
+	    m_transcoder[i] = true; 
+	std::cout << "Module enabled to transcoding: ";	
+	for ( int i = 0; i < NB_OF_MODULES; i++ )
+	 if (m_transcoder[i])
+	   std::cout << char('A' + i);
+	 std::cout << std::endl;  		   
 }
 
 CReflector::CReflector(const CCallsign &callsign)
 {
+    char sz[256];
+	char mod;
 #ifdef DEBUG_DUMPFILE
     m_DebugFile.close();
-#endif
+#endif	
     m_bStopThreads = false;
     m_XmlReportThread = NULL;
     m_JsonReportThread = NULL;
     for ( int i = 0; i < NB_OF_MODULES; i++ )
     {
         m_RouterThreads[i] = NULL;
+        if (i == 0)
+          m_transcoder[i] = false;
+		else  
+		  m_transcoder[i] = true;
     }
     m_Callsign = callsign;
     ::memset(m_Mac, 0, sizeof(m_Mac));
+	
+	std::ifstream file(MODULE_PATH);
+	if (file.is_open()) {
+	  while (file.getline(sz, sizeof(sz)).good()) {
+	    char* szt = TrimWhiteSpaces(sz);
+	    if ((::strlen(szt) > 0) && (szt[0] != '#')) {
+           mod = szt[0];
+           if ((mod >= 'A') and (mod <= ('A'+ NB_OF_MODULES))) 
+             m_transcoder[mod - 'A']  = true; 
+           }
+		}
+	}
+	else
+	  for ( int i = 0; i < NB_OF_MODULES; i++ )
+	    m_transcoder[i] = true; 	   
+	std::cout << "Module enabled to transcoding: ";
+	for ( int i = 0; i < NB_OF_MODULES; i++ )
+	 if (m_transcoder[i])
+	   std::cout << char('A' + i);
+	 std::cout << std::endl;  
+	
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -919,3 +968,25 @@ bool CReflector::UpdateListenMac(void)
     return ok;
 }
 #endif
+
+char* CReflector::TrimWhiteSpaces(char* str) const
+{
+    char* end;
+
+    // Trim leading space & tabs
+    while ((*str == ' ') || (*str == '\t')) str++;
+
+    // All spaces?
+    if (*str == 0)
+        return str;
+
+    // Trim trailing space, tab or lf
+    end = str + ::strlen(str) - 1;
+    while ((end > str) && ((*end == ' ') || (*end == '\t') || (*end == '\r'))) end--;
+
+    // Write new null terminator
+    *(end + 1) = 0;
+
+    return str;
+}
+
